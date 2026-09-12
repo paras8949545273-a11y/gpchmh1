@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Student ID Card Portal — Government Polytechnic College, Hanumangarh</title>
+<link rel="icon" href="assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Spectral:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ TOP LETTERHEAD ============ -->
+<header class="letterhead">
+  <div class="letterhead-inner">
+    <img src="assets/logo.png" alt="College emblem" class="letterhead-logo">
+    <div class="letterhead-text">
+      <p class="letterhead-eyebrow">Student Identity Card Portal</p>
+      <h1 id="letterheadCollegeName">Government Polytechnic College, Hanumangarh</h1>
+      <p class="letterhead-sub" id="letterheadAffiliation">Approved by AICTE, New Delhi &amp; Affiliated to BTER, Jodhpur</p>
+    </div>
+  </div>
+  <nav class="letterhead-nav" id="navArea"></nav>
+</header>
+
+<div class="app-shell">
+  <aside class="side-nav hidden" id="sideNav"></aside>
+  <main id="app"></main>
+</div>
+
+<footer class="site-footer">
+  <p>Serial/Dis. numbers and validity dates are entered manually by the college admin at approval — they are never auto-generated.</p>
+</footer>
+
+<!-- Hidden print stage: the approved card is cloned here for clean printing -->
+<div id="printArea"></div>
+
+<!-- ============ TEMPLATES (rendered into #app by app.js) ============ -->
+
+<template id="tpl-home">
+  <section class="home-split">
+    <button class="portal-panel" data-goto="student-auth">
+      <span class="portal-panel-num">Entry 1</span>
+      <h2>Student Portal</h2>
+      <p>Apply for your identity card, track its status, and download it once approved.</p>
+      <span class="portal-panel-cta">Continue as student</span>
+    </button>
+    <button class="portal-panel" data-goto="admin-auth">
+      <span class="portal-panel-num">Entry 2</span>
+      <h2>Admin Portal</h2>
+      <p>Review, correct, approve or reject student applications.</p>
+      <span class="portal-panel-cta">Continue as admin</span>
+    </button>
+  </section>
+</template>
+
+<!-- ---------- Student auth ---------- -->
+<template id="tpl-student-auth">
+  <section class="auth-wrap">
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-tab="login">Log in</button>
+        <button class="auth-tab" data-tab="register">Register</button>
+      </div>
+
+      <form id="studentLoginForm" class="auth-form">
+        <label>Username
+          <input type="text" name="username" required autocomplete="username">
+        </label>
+        <label>Password
+          <input type="password" name="password" required autocomplete="current-password">
+        </label>
+        <p class="form-error" id="loginError"></p>
+        <button type="submit" class="btn-primary">Log in</button>
+      </form>
+
+      <form id="studentRegisterForm" class="auth-form hidden">
+        <label>Choose a username
+          <input type="text" name="username" required>
+        </label>
+        <label>Admission number
+          <input type="text" name="admissionNumber" placeholder="e.g. 24GPCH1042" required>
+        </label>
+        <label>Choose a password
+          <input type="password" name="password" required minlength="4">
+        </label>
+        <p class="form-error" id="registerError"></p>
+        <button type="submit" class="btn-primary">Create account</button>
+      </form>
+    </div>
+  </section>
+</template>
+
+<!-- ---------- Student dashboard ---------- -->
+<template id="tpl-student-dashboard">
+  <div class="page-head">
+    <h2>Dashboard</h2>
+  </div>
+  <div class="stat-row" id="studentStatRow"></div>
+  <div id="dashboardActionCard"></div>
+</template>
+
+<!-- ---------- Student profile ---------- -->
+<template id="tpl-student-profile">
+  <div class="page-head"><h2>My Profile</h2></div>
+  <div class="profile-card" id="profileCardBody"></div>
+</template>
+
+<!-- ---------- Application form ---------- -->
+<template id="tpl-application-page">
+  <div class="page-head"><h2 id="applyPageTitle">ID Card Application</h2></div>
+  <div id="applyPageBody"></div>
+</template>
+
+<template id="tpl-request-form">
+  <form id="idRequestForm" class="request-form">
+    <p class="section-note">Fill in your details exactly as they should appear on your identity card. Your college admin will review this before approval.</p>
+
+    <div class="form-grid">
+      <label class="photo-upload-field">
+        Student photo
+        <input type="file" name="photo" accept="image/*">
+        <img id="photoPreview" class="photo-preview hidden" alt="Photo preview">
+        <span class="field-hint">JPG or PNG, under 2 MB</span>
+        <p class="form-error" id="photoError"></p>
+      </label>
+
+      <div class="form-grid-fields">
+        <label>Full name
+          <input type="text" name="name" required>
+        </label>
+        <label>Father's name
+          <input type="text" name="fatherName" required>
+        </label>
+        <label>Admission number
+          <input type="text" name="admissionNumber" required>
+        </label>
+        <label>Date of birth
+          <input type="date" name="dob" required>
+        </label>
+        <label>Branch
+          <input type="text" name="branch" placeholder="e.g. Mechanical Engineering" required>
+        </label>
+        <label>Session
+          <input type="text" name="session" placeholder="e.g. 2025–2026" required>
+        </label>
+        <label class="full-width">Address
+          <textarea name="address" rows="2" required></textarea>
+        </label>
+      </div>
+    </div>
+
+    <div class="form-preview-toggle">
+      <button type="button" class="btn-secondary" id="togglePreviewBtn">Show live preview</button>
+    </div>
+    <div id="livePreviewHolder" class="hidden"></div>
+
+    <button type="submit" class="btn-primary" id="submitApplicationBtn">Submit application</button>
+  </form>
+</template>
+
+<!-- ---------- Application status ---------- -->
+<template id="tpl-application-status">
+  <div class="page-head"><h2>Application Status</h2></div>
+  <div id="statusPageBody"></div>
+</template>
+
+<!-- ---------- Admin auth ---------- -->
+<template id="tpl-admin-auth">
+  <section class="auth-wrap">
+    <div class="auth-card">
+      <h2 class="auth-card-title">Admin log in</h2>
+      <form id="adminLoginForm" class="auth-form">
+        <label>Admin username
+          <input type="text" name="username" required autocomplete="username">
+        </label>
+        <label>Admin password
+          <input type="password" name="password" required autocomplete="current-password">
+        </label>
+        <p class="form-error" id="adminLoginError"></p>
+        <button type="submit" class="btn-primary">Log in</button>
+      </form>
+      <p class="auth-hint">Default admin credentials: <code>admin</code> / <code>admin123</code>. Change these in <code>app.js</code> before deploying — see README.</p>
+    </div>
+  </section>
+</template>
+
+<!-- ---------- Admin dashboard ---------- -->
+<template id="tpl-admin-dashboard">
+  <div class="page-head"><h2>Admin Dashboard</h2></div>
+  <div class="stat-row" id="adminStatRow"></div>
+  <div class="dash-head" style="border:none; margin-bottom:12px;">
+    <h3 class="subhead">Recent applications</h3>
+  </div>
+  <div id="recentAppsWrap"></div>
+</template>
+
+<!-- ---------- Admin applications list ---------- -->
+<template id="tpl-admin-applications">
+  <div class="page-head"><h2>Applications</h2></div>
+  <div class="toolbar-row">
+    <input type="search" id="appSearchInput" placeholder="Search by name, admission no. or application ID">
+    <div class="admin-filter-row" id="adminFilterRow"></div>
+  </div>
+  <div id="adminTableWrap"></div>
+</template>
+
+<!-- ---------- Admin application detail ---------- -->
+<template id="tpl-admin-application-detail">
+  <div class="page-head">
+    <h2>Application <span id="detailAppNumber"></span></h2>
+    <button class="btn-text" id="backToApplications">&larr; Back to applications</button>
+  </div>
+  <div class="detail-layout">
+    <form id="detailForm" class="detail-form"></form>
+    <div class="detail-preview" id="detailPreview"></div>
+  </div>
+</template>
+
+<!-- ---------- Admin students list ---------- -->
+<template id="tpl-admin-students">
+  <div class="page-head"><h2>Students</h2></div>
+  <div id="studentsTableWrap"></div>
+</template>
+
+<!-- ---------- Admin settings ---------- -->
+<template id="tpl-admin-settings">
+  <div class="page-head"><h2>Settings / ID Card Template</h2></div>
+  <form id="settingsForm" class="settings-form">
+    <label>College name (appears on letterhead and ID card)
+      <input type="text" name="collegeName" required>
+    </label>
+    <label>Affiliation line
+      <input type="text" name="affiliation" required>
+    </label>
+    <p class="section-note">The card layout itself (logo position, field order, signature lines) is fixed to match the official printed format and is not editable here. To change the logo image, replace <code>assets/logo.png</code>. To recalibrate layout, edit the <code>.id-card</code> rules in <code>style.css</code>.</p>
+    <button type="submit" class="btn-primary">Save settings</button>
+    <p class="form-success" id="settingsSaved"></p>
+  </form>
+</template>
+
+<!-- The certified ID card layout, matching the college's printed format -->
+<template id="tpl-id-card">
+  <div class="id-card" id="idCardRoot">
+    <div class="id-card-title">IDENTITY CARD</div>
+    <div class="id-card-header">
+      <img src="assets/logo.png" alt="College emblem" class="id-card-logo">
+      <div class="id-card-heading">
+        <h3 id="cardCollegeName">Government Polytechnic College, Hanumangarh</h3>
+        <p id="cardAffiliation">Approved by AICTE, New Delhi &amp; Affiliated to BTER, Jodhpur</p>
+      </div>
+    </div>
+    <div class="id-card-meta">
+      <span>Sr.No/Dis. <b id="cardSrNo"></b></span>
+      <span>Date of issue <b id="cardIssueDate"></b></span>
+      <span>Valid up to <b id="cardValidUpto"></b></span>
+    </div>
+    <div class="id-card-body">
+      <div class="id-card-photo-col">
+        <div class="id-card-photo-box">
+          <img id="cardPhoto" alt="Student photo">
+        </div>
+        <p class="id-card-photo-label">Student photo</p>
+      </div>
+      <div class="id-card-fields">
+        <p>Name <span id="cardName"></span></p>
+        <p>Father's Name <span id="cardFatherName"></span></p>
+        <p>Date of Birth <span id="cardDob"></span></p>
+        <p>Admission No. <span id="cardAdmissionNumber"></span></p>
+        <p>Branch <span id="cardBranch"></span> Session <span id="cardSession"></span></p>
+        <p>Address <span id="cardAddress"></span></p>
+      </div>
+    </div>
+    <div class="id-card-footer">
+      <span>Seal &amp; Signature of<br>Issuing Authority</span>
+      <span>Proctor of<br>College</span>
+      <span>Signature of<br>Student</span>
+    </div>
+  </div>
+</template>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
