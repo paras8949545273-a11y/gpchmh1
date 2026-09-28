@@ -1,13 +1,7 @@
 /* =========================================================================
    Student ID Card Portal — app logic
-   Storage: browser localStorage (no backend). Data lives per-browser/device.
-   See README.md for what this means and how it differs from a real
-   server-backed deployment.
+   Storage: Netlify Database through the protected /api/portal endpoint.
    ========================================================================= */
-
-// ---- Fixed admin credentials. Change these before you deploy. ----------
-const ADMIN_USER = "admin";
-const ADMIN_PASS = "admin123";
 
 const DEFAULT_COLLEGE_NAME = "Government Polytechnic College, Hanumangarh";
 const DEFAULT_AFFILIATION = "Approved by AICTE, New Delhi & Affiliated to BTER, Jodhpur";
@@ -21,38 +15,34 @@ const STATUS_LABELS = {
   rejected: "Rejected",
 };
 
-// ---- Storage helpers -----------------------------------------------------
+// ---- Online data helpers -------------------------------------------------
+let CACHE = { students: {}, applications: {}, config: { collegeName: DEFAULT_COLLEGE_NAME, affiliation: DEFAULT_AFFILIATION } };
+
 const DB = {
-  students() { return JSON.parse(localStorage.getItem("sid_students") || "{}"); },
-  saveStudents(v) { localStorage.setItem("sid_students", JSON.stringify(v)); },
-  applications() { return JSON.parse(localStorage.getItem("sid_applications") || "{}"); },
-  saveApplications(v) { localStorage.setItem("sid_applications", JSON.stringify(v)); },
-  config() {
-    return Object.assign(
-      { collegeName: DEFAULT_COLLEGE_NAME, affiliation: DEFAULT_AFFILIATION },
-      JSON.parse(localStorage.getItem("sid_config") || "{}")
-    );
-  },
-  saveConfig(v) { localStorage.setItem("sid_config", JSON.stringify(v)); },
-  nextCounter() {
-    const n = parseInt(localStorage.getItem("sid_app_counter") || "0", 10) + 1;
-    localStorage.setItem("sid_app_counter", String(n));
-    return n;
-  },
+  students() { return CACHE.students || {}; },
+  applications() { return CACHE.applications || {}; },
+  config() { return CACHE.config || { collegeName: DEFAULT_COLLEGE_NAME, affiliation: DEFAULT_AFFILIATION }; },
 };
 
 function getSession() { return JSON.parse(sessionStorage.getItem("sid_session") || "null"); }
 function setSession(s) { sessionStorage.setItem("sid_session", JSON.stringify(s)); }
 function clearSession() { sessionStorage.removeItem("sid_session"); }
 
-// ---- Password hashing -----------------------------------------------------
-// Note: this hashes passwords with SHA-256 in the browser so nothing is
-// stored in plain text. It is NOT equivalent to real server-side auth
-// (salting, rate limiting, secret-side verification) — see README.md.
-async function hashPassword(password) {
-  const data = new TextEncoder().encode(password);
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
+async function api(route, options = {}) {
+  const session = getSession();
+  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  if (session?.token) headers.Authorization = `Bearer ${session.token}`;
+  const response = await fetch(`/api/portal/${route}`, { ...options, headers });
+  const data = response.status === 204 ? null : await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (response.status === 401 && session) clearSession();
+    throw new Error(data?.error || "The online service could not complete this request.");
+  }
+  return data;
+}
+
+async function loadState() {
+  CACHE = await api("state", { method: "GET" });
 }
 
 // ---- Small utils -----------------------------------------------------
@@ -88,8 +78,8 @@ const navArea = document.getElementById("navArea");
 const sideNav = document.getElementById("sideNav");
 
 function navigate(route) { location.hash = route; }
-window.addEventListener("hashchange", render);
-window.addEventListener("DOMContentLoaded", render);
+window.addEventListener("hashchange", () => render());
+window.addEventListener("DOMContentLoaded", () => render());
 
 const STUDENT_NAV = [
   { route: "s/dashboard", label: "Dashboard" },
@@ -104,13 +94,22 @@ const ADMIN_NAV = [
   { route: "a/settings", label: "Settings" },
 ];
 
-function render() {
+async function render() {
   const raw = (location.hash || "#home").slice(1);
   const parts = raw.split("/");
   const route = parts[0] === "s" || parts[0] === "a" ? parts[0] + "/" + parts[1] : parts[0];
   const param = parts[2];
   const session = getSession();
 
+  app.innerHTML = '<div class="loading-state">Loading online records…</div>';
+  try {
+    await loadState();
+  } catch (error) {
+    if (session && !getSession()) { navigate("home"); return; }
+    app.innerHTML = `<div class="error-state"><b>Unable to connect to the portal.</b><span>${escapeHtml(error.message)}</span><button class="btn-secondary" id="retryLoad">Try again</button></div>`;
+    app.querySelector("#retryLoad").onclick = () => render();
+    return;
+  }
   applyBranding();
   app.innerHTML = "";
   renderTopNav(session);
@@ -145,7 +144,11 @@ function renderTopNav(session) {
   navArea.innerHTML = "";
   if (session) {
     const btn = el(`<button class="btn-secondary">Log out</button>`);
-    btn.onclick = () => { clearSession(); navigate("home"); };
+    btn.onclick = async () => {
+      try { await api("logout", { method: "POST" }); } catch (_) { /* local logout still succeeds */ }
+      clearSession();
+      navigate("home");
+    };
     navArea.appendChild(btn);
   }
 }
@@ -196,16 +199,18 @@ function renderStudentAuth() {
     const fd = new FormData(loginForm);
     const username = fd.get("username").trim();
     const password = fd.get("password");
-    const students = DB.students();
     const errorEl = app.querySelector("#loginError");
-    const record = students[username];
-    if (!record || record.passwordHash !== await hashPassword(password)) {
-      errorEl.textContent = "Incorrect username or password.";
-      return;
-    }
+    const button = loginForm.querySelector('button[type="submit"]');
+    button.disabled = true;
     errorEl.textContent = "";
-    setSession({ type: "student", username });
-    navigate("s/dashboard");
+    try {
+      const result = await api("login", { method: "POST", body: JSON.stringify({ username, password }) });
+      setSession({ type: "student", username: username.toLowerCase(), token: result.token });
+      navigate("s/dashboard");
+    } catch (error) {
+      errorEl.textContent = error.message;
+      button.disabled = false;
+    }
   };
 
   registerForm.onsubmit = async (e) => {
@@ -214,20 +219,19 @@ function renderStudentAuth() {
     const username = fd.get("username").trim();
     const password = fd.get("password");
     const admissionNumber = fd.get("admissionNumber").trim();
-    const students = DB.students();
     const errorEl = app.querySelector("#registerError");
     if (!username || !password || !admissionNumber) return;
-    if (students[username]) { errorEl.textContent = "That username is already taken."; return; }
-    students[username] = {
-      passwordHash: await hashPassword(password),
-      admissionNumber,
-      name: "", fatherName: "", dob: "", branch: "", session: "", address: "", photo: "",
-      createdAt: todayISO(),
-    };
-    DB.saveStudents(students);
+    const button = registerForm.querySelector('button[type="submit"]');
+    button.disabled = true;
     errorEl.textContent = "";
-    setSession({ type: "student", username });
-    navigate("s/dashboard");
+    try {
+      const result = await api("register", { method: "POST", body: JSON.stringify({ username, password, admissionNumber }) });
+      setSession({ type: "student", username: username.toLowerCase(), token: result.token });
+      navigate("s/dashboard");
+    } catch (error) {
+      errorEl.textContent = error.message;
+      button.disabled = false;
+    }
   };
 }
 
@@ -399,19 +403,14 @@ function renderRequestForm(container, username, existing) {
   };
   form.addEventListener("input", () => { if (!previewHolder.classList.contains("hidden")) updateLivePreview(); });
 
-  form.onsubmit = (e) => {
+  form.onsubmit = async (e) => {
     e.preventDefault();
     if (!currentPhoto) { photoError.textContent = "Please upload a student photo."; return; }
     const fd = new FormData(form);
-
-    const applications = DB.applications();
-    const students = DB.students();
-    const isResubmit = !!existing;
-    const applicationNumber = isResubmit ? existing.applicationNumber : "GPC-" + String(DB.nextCounter()).padStart(6, "0");
-
+    const submitButton = form.querySelector("#submitApplicationBtn");
+    submitButton.disabled = true;
+    submitButton.textContent = "Saving online…";
     const record = {
-      applicationNumber,
-      username,
       name: fd.get("name").trim(),
       fatherName: fd.get("fatherName").trim(),
       admissionNumber: fd.get("admissionNumber").trim(),
@@ -419,28 +418,16 @@ function renderRequestForm(container, username, existing) {
       branch: fd.get("branch").trim(),
       session: fd.get("session").trim(),
       address: fd.get("address").trim(),
-      photo: currentPhoto,
-      status: "pending",
-      rejectionReason: "",
-      adminNotes: isResubmit ? (existing.adminNotes || "") : "",
-      serialNumber: isResubmit ? (existing.serialNumber || "") : "",
-      dateOfIssue: isResubmit ? (existing.dateOfIssue || "") : "",
-      validUpto: isResubmit ? (existing.validUpto || "") : "",
-      submittedAt: todayISO(),
-      reviewedAt: isResubmit ? (existing.reviewedAt || "") : "",
-      approvedAt: "",
+      photo: currentPhoto === (existing?.photo || student?.photo) ? "unchanged" : currentPhoto,
     };
-    applications[username] = record;
-    DB.saveApplications(applications);
-
-    // Keep the student's profile record in sync with their latest submission.
-    students[username] = Object.assign({}, students[username], {
-      name: record.name, fatherName: record.fatherName, admissionNumber: record.admissionNumber,
-      dob: record.dob, branch: record.branch, session: record.session, address: record.address, photo: record.photo,
-    });
-    DB.saveStudents(students);
-
-    navigate("s/status");
+    try {
+      await api("application", { method: "PUT", body: JSON.stringify(record) });
+      navigate("s/status");
+    } catch (error) {
+      photoError.textContent = error.message;
+      submitButton.disabled = false;
+      submitButton.textContent = existing ? "Resubmit application" : "Submit application";
+    }
   };
 }
 
@@ -499,17 +486,21 @@ function renderStatusPage(username) {
 function renderAdminAuth() {
   app.appendChild(clone("tpl-admin-auth"));
   const form = app.querySelector("#adminLoginForm");
-  form.onsubmit = (e) => {
+  form.onsubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData(form);
     const errorEl = app.querySelector("#adminLoginError");
-    if (fd.get("username") !== ADMIN_USER || fd.get("password") !== ADMIN_PASS) {
-      errorEl.textContent = "Incorrect admin credentials.";
-      return;
-    }
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
     errorEl.textContent = "";
-    setSession({ type: "admin" });
-    navigate("a/dashboard");
+    try {
+      const result = await api("admin-login", { method: "POST", body: JSON.stringify({ username: fd.get("username"), password: fd.get("password") }) });
+      setSession({ type: "admin", token: result.token });
+      navigate("a/dashboard");
+    } catch (error) {
+      errorEl.textContent = error.message;
+      button.disabled = false;
+    }
   };
 }
 
@@ -675,12 +666,12 @@ function renderAdminApplicationDetail(usernameParam) {
     };
   }
 
-  function persist(extra) {
-    const applications = DB.applications();
-    const current = applications[username];
-    Object.assign(current, readFormValues(), extra || {});
-    applications[username] = current;
-    DB.saveApplications(applications);
+  async function persist(extra) {
+    const current = { ...req, ...readFormValues(), ...(extra || {}) };
+    await api("admin/application", {
+      method: "PUT",
+      body: JSON.stringify({ ...current, applicationNumber: req.applicationNumber }),
+    });
     return current;
   }
 
@@ -689,42 +680,43 @@ function renderAdminApplicationDetail(usernameParam) {
     previewWrap.appendChild(buildIdCard(current));
   }
 
-  actions.querySelector("#saveBtn").onclick = () => {
-    const current = persist();
-    savedMsg.textContent = "Changes saved.";
-    refreshPreview(current);
+  actions.querySelector("#saveBtn").onclick = async () => {
+    try {
+      const current = await persist();
+      savedMsg.style.color = "var(--green)";
+      savedMsg.textContent = "Changes saved online.";
+      refreshPreview(current);
+    } catch (error) { savedMsg.style.color = "var(--red)"; savedMsg.textContent = error.message; }
   };
-  actions.querySelector("#underReviewBtn").onclick = () => {
-    const current = persist({ status: "under_review", reviewedAt: todayISO() });
-    savedMsg.textContent = "Marked as Under Review.";
-    renderAdminApplicationDetail(usernameParam);
+  actions.querySelector("#underReviewBtn").onclick = async () => {
+    try {
+      await persist({ status: "under_review" });
+      await render();
+    } catch (error) { savedMsg.style.color = "var(--red)"; savedMsg.textContent = error.message; }
   };
-  actions.querySelector("#approveBtn").onclick = () => {
+  actions.querySelector("#approveBtn").onclick = async () => {
     const values = readFormValues();
     if (!values.serialNumber || !values.dateOfIssue || !values.validUpto) {
       savedMsg.textContent = "Enter Serial/Dis. No., Date of issue and Valid up to before approving.";
       savedMsg.style.color = "var(--red)";
       return;
     }
-    const current = persist({ status: "approved", approvedAt: todayISO(), reviewedAt: todayISO(), rejectionReason: "" });
-    // Keep the student's stored profile in sync with the admin-corrected, approved data.
-    const students = DB.students();
-    students[username] = Object.assign({}, students[username], {
-      name: current.name, fatherName: current.fatherName, admissionNumber: current.admissionNumber,
-      dob: current.dob, branch: current.branch, session: current.session, address: current.address,
-    });
-    DB.saveStudents(students);
-    navigate("a/applications");
+    try {
+      await persist({ status: "approved", rejectionReason: "" });
+      navigate("a/applications");
+    } catch (error) { savedMsg.style.color = "var(--red)"; savedMsg.textContent = error.message; }
   };
-  actions.querySelector("#rejectBtn").onclick = () => {
+  actions.querySelector("#rejectBtn").onclick = async () => {
     const values = readFormValues();
     if (!values.rejectionReason) {
       savedMsg.textContent = "Enter a rejection reason before rejecting.";
       savedMsg.style.color = "var(--red)";
       return;
     }
-    persist({ status: "rejected", reviewedAt: todayISO() });
-    navigate("a/applications");
+    try {
+      await persist({ status: "rejected" });
+      navigate("a/applications");
+    } catch (error) { savedMsg.style.color = "var(--red)"; savedMsg.textContent = error.message; }
   };
 
   refreshPreview(req);
@@ -777,12 +769,17 @@ function renderAdminSettings() {
   form.querySelector('[name="collegeName"]').value = cfg.collegeName;
   form.querySelector('[name="affiliation"]').value = cfg.affiliation;
 
-  form.onsubmit = (e) => {
+  form.onsubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData(form);
-    DB.saveConfig({ collegeName: fd.get("collegeName").trim(), affiliation: fd.get("affiliation").trim() });
-    applyBranding();
-    app.querySelector("#settingsSaved").textContent = "Settings saved.";
+    const message = app.querySelector("#settingsSaved");
+    try {
+      await api("settings", { method: "PUT", body: JSON.stringify({ collegeName: fd.get("collegeName").trim(), affiliation: fd.get("affiliation").trim() }) });
+      await loadState();
+      applyBranding();
+      message.style.color = "var(--green)";
+      message.textContent = "Settings saved online.";
+    } catch (error) { message.style.color = "var(--red)"; message.textContent = error.message; }
   };
 }
 

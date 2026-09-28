@@ -201,6 +201,11 @@ input:focus, textarea:focus, button:focus-visible{ outline: 2px solid var(--navy
   margin-bottom: 24px;
 }
 .section-note{ font-size: 13.5px; color: var(--ink-soft); margin: 0 0 20px; }
+.online-note{ display: flex; align-items: center; gap: 9px; padding: 11px 13px; background: #EDF4EC; border-left: 3px solid var(--green); color: #274F30; }
+.online-note span{ width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex: 0 0 auto; }
+.loading-state{ margin: 48px auto; max-width: 420px; padding: 28px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink-soft); text-align: center; }
+.error-state{ margin: 48px auto; max-width: 520px; padding: 28px; border: 1px solid #D6AAA2; background: #FBF1EE; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; color: var(--red); }
+.error-state span{ color: var(--ink-soft); font-size: 13.5px; }
 
 .request-form{ display: flex; flex-direction: column; gap: 20px; }
 .form-grid{ display: grid; grid-template-columns: 160px 1fr; gap: 24px; }

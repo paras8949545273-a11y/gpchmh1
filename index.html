@@ -83,7 +83,7 @@
           <input type="text" name="admissionNumber" placeholder="e.g. 24GPCH1042" required>
         </label>
         <label>Choose a password
-          <input type="password" name="password" required minlength="4">
+          <input type="password" name="password" required minlength="6">
         </label>
         <p class="form-error" id="registerError"></p>
         <button type="submit" class="btn-primary">Create account</button>
@@ -115,7 +115,7 @@
 
 <template id="tpl-request-form">
   <form id="idRequestForm" class="request-form">
-    <p class="section-note">Fill in your details exactly as they should appear on your identity card. Your college admin will review this before approval.</p>
+    <p class="section-note online-note"><span></span>Saved online — your application and status are available on any device after login.</p>
 
     <div class="form-grid">
       <label class="photo-upload-field">
